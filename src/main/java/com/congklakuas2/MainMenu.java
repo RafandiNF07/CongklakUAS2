@@ -1,5 +1,8 @@
 package com.congklakuas2;
 
+import javafx.animation.FadeTransition;
+import javafx.animation.ParallelTransition;
+import javafx.animation.ScaleTransition;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -7,7 +10,11 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.effect.DropShadow;
-import javafx.scene.layout.*;
+import javafx.scene.layout.Background;
+import javafx.scene.layout.BackgroundFill;
+import javafx.scene.layout.CornerRadii;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.paint.CycleMethod;
 import javafx.scene.paint.LinearGradient;
@@ -16,9 +23,6 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
-import javafx.animation.FadeTransition;
-import javafx.animation.ParallelTransition;
-import javafx.animation.ScaleTransition;
 import javafx.util.Duration;
 
 public class MainMenu extends Application {
@@ -109,7 +113,7 @@ public class MainMenu extends Application {
         
         buttonBox.getChildren().addAll(startButton, rulesButton, exitButton);
 
-        Label footerLabel = new Label("© 2024 Game Congklak - Tugas UAS Semester 3");
+        Label footerLabel = new Label("© Game Congklak - Tugas UAS Semester 3");
         footerLabel.setFont(Font.font("Arial", 14));
         footerLabel.setTextFill(Color.web("#F5DEB3", 0.8));
 

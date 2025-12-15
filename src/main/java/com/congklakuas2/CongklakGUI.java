@@ -1,21 +1,32 @@
 package com.congklakuas2;
 
+import javafx.animation.FadeTransition;
+import javafx.animation.ParallelTransition;
+import javafx.animation.ScaleTransition;
+import javafx.animation.TranslateTransition;
 import javafx.application.Application;
-import javafx.geometry.Pos;
-import javafx.scene.Scene;
-import javafx.stage.Stage;
-import javafx.util.Duration;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
-import javafx.scene.control.*;
-import javafx.scene.layout.*;
-import javafx.animation.*;
-import javafx.stage.Modality;
+import javafx.geometry.Pos;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.effect.DropShadow;
+import javafx.scene.effect.InnerShadow;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
-import javafx.scene.effect.DropShadow;
-import javafx.scene.effect.InnerShadow;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.util.Duration;
 
 public class CongklakGUI extends Application {
 
@@ -304,22 +315,14 @@ public class CongklakGUI extends Application {
         );      
         Button restartButton = createControlButton("🔄 RESTART", "#2E8B57");
         Button rulesButton = createControlButton("📖 ATURAN", "#4169E1");
-        Button soundButton = createControlButton("🔊 SUARA: ON", "#808080");
         
         restartButton.setOnAction(e -> {
             game = new CongklakGame();
             updateBoard();
             animateTurnLabelChange("PLAYER 1'S TURN");
         });       
-        rulesButton.setOnAction(e -> showRulesDialog());       
-        soundButton.setOnAction(e -> {
-            if (soundButton.getText().contains("ON")) {
-                soundButton.setText("🔇 SUARA: OFF");
-            } else {
-                soundButton.setText("🔊 SUARA: ON");
-            }
-        });     
-        controlBox.getChildren().addAll(restartButton, rulesButton, soundButton);
+        rulesButton.setOnAction(e -> showRulesDialog());          
+        controlBox.getChildren().addAll(restartButton, rulesButton);
         return controlBox;
     }
     
