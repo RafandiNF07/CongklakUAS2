@@ -1,780 +1,543 @@
 package com.congklakuas2;
 
-import javafx.animation.FadeTransition;
-import javafx.animation.ParallelTransition;
-import javafx.animation.ScaleTransition;
-import javafx.animation.TranslateTransition;
+import javafx.animation.*;
 import javafx.application.Application;
-import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Point2D;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.effect.DropShadow;
-import javafx.scene.effect.InnerShadow;
-import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.GridPane;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Pane;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
-import javafx.scene.layout.StackPane;
-import javafx.scene.layout.VBox;
+import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 
+import java.util.List;
+
 public class CongklakGUI extends Application {
 
     private CongklakGame game = new CongklakGame();
     private PitView[] pitViews = new PitView[16];
     private Label turnLabel = new Label("PLAYER 1'S TURN");
+
+    private Stage primaryStage;
+
     private Pane animationLayer = new Pane();
     private Button backToMenuButton = new Button("🏠 MENU UTAMA");
+    private Button skipButton = new Button("⏩ SKIP");
     private Label player1ScoreLabel = new Label("0");
     private Label player2ScoreLabel = new Label("0");
+    private StackPane rootWrapper;
+
+    private boolean isAnimating = false;
+    private Animation currentAnimation = null;
+    private StackPane flyingHand;
+    private Label flyingCountLabel;
+
+    private MoveResult currentMoveResult;
 
     @Override
     public void start(Stage stage) {
-        BorderPane root = new BorderPane();
-        StackPane rootWrapper = new StackPane();
+        this.primaryStage = stage;
 
-        root.setStyle(
-            "-fx-background-color: linear-gradient(to bottom, #8B4513, #A0522D, #D2691E);" +
-            "-fx-background-image: url('data:image/svg+xml;utf8,<svg width=\"100\" height=\"100\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"100\" height=\"100\" fill=\"%238B4513\"/><path d=\"M0,50 Q25,30 50,50 T100,50\" stroke=\"%23A0522D\" stroke-width=\"2\" fill=\"none\" opacity=\"0.3\"/></svg>');"
-        );
+        BorderPane root = new BorderPane();
+        rootWrapper = new StackPane();
+        rootWrapper.getStyleClass().add("root");
 
         animationLayer.setPickOnBounds(false);
         animationLayer.setMouseTransparent(true);
         animationLayer.prefWidthProperty().bind(rootWrapper.widthProperty());
         animationLayer.prefHeightProperty().bind(rootWrapper.heightProperty());
-        animationLayer.setStyle("-fx-background-color: transparent;");
 
         rootWrapper.getChildren().addAll(root, animationLayer);
 
         HBox headerBox = createHeaderBox();
         VBox player1Panel = createPlayerPanel(1, "#FF6B6B");
         VBox player2Panel = createPlayerPanel(2, "#4ECDC4");
-
         GridPane boardPane = createGameBoard();
-        
+
         VBox centerPanel = new VBox(20);
         centerPanel.setAlignment(Pos.CENTER);
         centerPanel.setPadding(new Insets(20));
 
         HBox turnPanel = createTurnPanel();
-        
         centerPanel.getChildren().addAll(turnPanel, boardPane);
+
         root.setTop(headerBox);
         root.setLeft(player1Panel);
         root.setRight(player2Panel);
         root.setCenter(centerPanel);
-        HBox bottomBox = createControlButtons();
-        root.setBottom(bottomBox);
-        
-        updateBoard();
-        
+        root.setBottom(createControlButtons());
+
+        createFlyingHand();
+
+        updateBoardVisuals();
+
         Scene scene = new Scene(rootWrapper, 1200, 700);
-        
-        stage.setTitle("🎮 CONGKLAK - Permainan Tradisional Indonesia");
+        scene.getStylesheets().add(getClass().getResource("style.css").toExternalForm());
+
+        stage.setTitle("🎮 CONGKLAK PRO - Full Version");
         stage.setScene(scene);
         stage.show();
+
         animateInitialStart();
     }
-    
+
+    private void createFlyingHand() {
+        flyingHand = new StackPane();
+        flyingHand.setPrefSize(60, 60);
+        flyingHand.setStyle(
+                "-fx-background-color: rgba(255, 223, 0, 0.9);" +
+                        "-fx-background-radius: 50%;" +
+                        "-fx-border-color: white; -fx-border-width: 3; -fx-border-radius: 50%;" +
+                        "-fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 10, 0, 0, 5);"
+        );
+
+        flyingCountLabel = new Label("0");
+        flyingCountLabel.setStyle("-fx-text-fill: #8B4513; -fx-font-weight: bold; -fx-font-size: 20px;");
+
+        flyingHand.getChildren().add(flyingCountLabel);
+        flyingHand.setVisible(false);
+        animationLayer.getChildren().add(flyingHand);
+    }
+
+    private void handlePitClick(int index) {
+        if (isAnimating) return;
+
+        if (!game.isPitPlayable(index)) {
+            shakePit(index);
+            return;
+        }
+
+        isAnimating = true;
+        skipButton.setDisable(false);
+
+        currentMoveResult = game.makeMove(index);
+
+        runComplexAnimation(currentMoveResult, index, currentMoveResult.startSeeds);
+    }
+
+    private void runComplexAnimation(MoveResult result, int startPitIndex, int initialSeeds) {
+        Point2D startPos = getPitScenePos(pitViews[startPitIndex]);
+
+        flyingHand.setTranslateX(startPos.getX() - 30);
+        flyingHand.setTranslateY(startPos.getY() - 30);
+        flyingHand.setVisible(true);
+        flyingCountLabel.setText(String.valueOf(initialSeeds));
+
+        pitViews[startPitIndex].clearVisualSeeds();
+
+        ScaleTransition grabAnim = new ScaleTransition(Duration.millis(300), flyingHand);
+        grabAnim.setFromX(0.5); grabAnim.setFromY(0.5);
+        grabAnim.setToX(1.2);   grabAnim.setToY(1.2);
+        grabAnim.setInterpolator(Interpolator.EASE_OUT);
+
+        grabAnim.setOnFinished(e -> {
+            ScaleTransition normalize = new ScaleTransition(Duration.millis(200), flyingHand);
+            normalize.setToX(1.0); normalize.setToY(1.0);
+            normalize.play();
+            executeStep(result.path, 0, initialSeeds);
+        });
+
+        currentAnimation = grabAnim;
+        grabAnim.play();
+    }
+
+    private void executeStep(List<Integer> path, int stepIndex, int currentSeedsInHand) {
+        if (!isAnimating) return;
+
+        if (currentSeedsInHand <= 0 || stepIndex >= path.size()) {
+            if (currentMoveResult.hitOpponent) {
+                animateCapture(currentMoveResult);
+            } else {
+                endTurnAnimation();
+            }
+            return;
+        }
+
+        int targetPitIdx = path.get(stepIndex);
+        PitView targetPit = pitViews[targetPitIdx];
+        Point2D targetPos = getPitScenePos(targetPit);
+
+        TranslateTransition moveT = new TranslateTransition(Duration.millis(300), flyingHand);
+        moveT.setToX(targetPos.getX() - 30);
+        moveT.setToY(targetPos.getY() - 30);
+        moveT.setInterpolator(Interpolator.LINEAR);
+
+        ScaleTransition dropPulse = new ScaleTransition(Duration.millis(100), flyingHand);
+        dropPulse.setFromX(1.0); dropPulse.setFromY(1.0);
+        dropPulse.setToX(0.9); dropPulse.setToY(0.9);
+        dropPulse.setAutoReverse(true);
+        dropPulse.setCycleCount(2);
+
+        SequentialTransition stepAnim = new SequentialTransition(moveT, dropPulse);
+        currentAnimation = stepAnim;
+
+        stepAnim.setOnFinished(e -> {
+            int nextHandCount = currentSeedsInHand - 1;
+            flyingCountLabel.setText(String.valueOf(nextHandCount));
+            targetPit.addVisualSeed();
+
+            if (nextHandCount == 0 && stepIndex < path.size() - 1) {
+                PauseTransition pause = new PauseTransition(Duration.millis(300));
+                pause.setOnFinished(ev -> {
+                    int capturedSeeds = targetPit.getVisualSeedCount();
+                    targetPit.clearVisualSeeds();
+                    flyingCountLabel.setText(String.valueOf(capturedSeeds));
+
+                    ScaleTransition grabChain = new ScaleTransition(Duration.millis(250), flyingHand);
+                    grabChain.setFromX(1.0); grabChain.setToX(1.2);
+                    grabChain.setAutoReverse(true); grabChain.setCycleCount(2);
+                    grabChain.play();
+
+                    grabChain.setOnFinished(ev2 -> executeStep(path, stepIndex + 1, capturedSeeds));
+                });
+                currentAnimation = pause;
+                pause.play();
+            } else {
+                executeStep(path, stepIndex + 1, nextHandCount);
+            }
+        });
+
+        stepAnim.play();
+    }
+
+    private void animateCapture(MoveResult result) {
+        int lastPitIdx = result.stopAtIndex;
+        int oppPitIdx = game.getBoard().oppositePos(lastPitIdx);
+        int storeIdx = game.getBoard().ownStoreIdx(game.getCurrentPlayer());
+
+        PitView lastPit = pitViews[lastPitIdx];
+        PitView oppPit = pitViews[oppPitIdx];
+        PitView store = pitViews[storeIdx];
+
+        Circle c1 = new Circle(10, Color.GOLD);
+        Circle c2 = new Circle(10, Color.GOLD);
+
+        Point2D p1 = getPitScenePos(lastPit);
+        Point2D p2 = getPitScenePos(oppPit);
+        Point2D pStore = getPitScenePos(store);
+
+        animationLayer.getChildren().addAll(c1, c2);
+        c1.setTranslateX(p1.getX()); c1.setTranslateY(p1.getY());
+        c2.setTranslateX(p2.getX()); c2.setTranslateY(p2.getY());
+
+        lastPit.clearVisualSeeds();
+        oppPit.clearVisualSeeds();
+        flyingHand.setVisible(false);
+
+        TranslateTransition t1 = new TranslateTransition(Duration.millis(800), c1);
+        t1.setToX(pStore.getX()); t1.setToY(pStore.getY());
+        TranslateTransition t2 = new TranslateTransition(Duration.millis(800), c2);
+        t2.setToX(pStore.getX()); t2.setToY(pStore.getY());
+
+        ParallelTransition captureAnim = new ParallelTransition(t1, t2);
+        currentAnimation = captureAnim;
+
+        captureAnim.setOnFinished(e -> {
+            animationLayer.getChildren().removeAll(c1, c2);
+            endTurnAnimation();
+        });
+        captureAnim.play();
+    }
+
+    private void handleSkip() {
+        if (isAnimating) {
+            forceStopAnimation();
+            updateBoardVisuals();
+            processTurnResult(currentMoveResult);
+        }
+    }
+
+    private void endTurnAnimation() {
+        forceStopAnimation();
+        updateBoardVisuals();
+        processTurnResult(currentMoveResult);
+    }
+
+    private void processTurnResult(MoveResult result) {
+        if (game.isGameOver()) {
+            game.collectRemainingSeeds();
+            updateBoardVisuals();
+            showGameOverDialog();
+            return;
+        }
+
+        if (result.freeTurn) {
+            int currentPlayer = game.getCurrentPlayer();
+            animateTurnLabelChange("PLAYER " + (currentPlayer + 1) + " MAIN LAGI! (Free Turn)");
+        } else {
+            game.switchTurn();
+            animateTurnLabelChange("PLAYER " + (game.getCurrentPlayer() + 1) + "'S TURN");
+        }
+
+        updateBoardVisuals();
+    }
+
+    private void forceStopAnimation() {
+        if (currentAnimation != null) currentAnimation.stop();
+        isAnimating = false;
+        flyingHand.setVisible(false);
+        skipButton.setDisable(true);
+        animationLayer.getChildren().removeIf(node -> node instanceof Circle);
+    }
+
+    private void handleRestart() {
+        forceStopAnimation();
+        game = new CongklakGame();
+        updateBoardVisuals();
+        turnLabel.setText("PLAYER 1'S TURN");
+        animateInitialStart();
+    }
+
+    private void updateBoardVisuals() {
+        int[] board = game.getBoard().getBoard();
+        for (int i = 0; i < 16; i++) {
+            pitViews[i].setSeeds(board[i]);
+            pitViews[i].setDisable(isAnimating);
+            pitViews[i].setActive(!isAnimating && game.isPitPlayable(i));
+        }
+        player1ScoreLabel.setText(String.valueOf(board[7]));
+        player2ScoreLabel.setText(String.valueOf(board[15]));
+    }
+
+    private void shakePit(int index) {
+        TranslateTransition tt = new TranslateTransition(Duration.millis(50), pitViews[index]);
+        tt.setByX(5); tt.setCycleCount(4); tt.setAutoReverse(true); tt.play();
+    }
+
+    private void animateTurnLabelChange(String text) {
+        FadeTransition ft = new FadeTransition(Duration.millis(300), turnLabel);
+        ft.setFromValue(1); ft.setToValue(0);
+        ft.setOnFinished(e -> {
+            turnLabel.setText(text);
+            if (text.contains("PLAYER 1")) turnLabel.setTextFill(Color.web("#FF6B6B"));
+            else turnLabel.setTextFill(Color.web("#4ECDC4"));
+            FadeTransition ft2 = new FadeTransition(Duration.millis(300), turnLabel);
+            ft2.setFromValue(0); ft2.setToValue(1);
+            ft2.play();
+        });
+        ft.play();
+    }
+
+    private void animateInitialStart() {
+        ScaleTransition st = new ScaleTransition(Duration.seconds(1), turnLabel);
+        st.setFromX(0); st.setFromY(0); st.setToX(1); st.setToY(1);
+        st.play();
+    }
+
+    // --- METHOD INI HANYA SATU SEKARANG ---
+    private Point2D getPitScenePos(PitView pit) {
+        return pit.localToScene(pit.getWidth()/2, pit.getHeight()/2);
+    }
+
+    // --- 5. UI COMPONENTS ---
+
     private HBox createHeaderBox() {
         HBox headerBox = new HBox();
         headerBox.setPadding(new Insets(15));
-        headerBox.setStyle(
-            "-fx-background-color: linear-gradient(to right, #5D4037, #8B4513);" +
-            "-fx-border-color: #D4A76A;" +
-            "-fx-border-width: 0 0 3 0;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 10, 0, 0, 3);"
-        );
-
+        headerBox.getStyleClass().add("header-box");
         Label title = new Label("🎮 CONGKLAK");
-        title.setFont(Font.font("Arial", FontWeight.BOLD, 32));
-        title.setTextFill(Color.web("#FFD700"));
-        title.setEffect(new DropShadow(15, Color.BLACK));
-        
-        Region leftSpacer = new Region();
-        HBox.setHgrow(leftSpacer, Priority.ALWAYS);
-    
-        Region rightSpacer = new Region();
-        HBox.setHgrow(rightSpacer, Priority.ALWAYS);
-
-        backToMenuButton.setStyle(
-            "-fx-font-size: 14px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-text-fill: white;" +
-            "-fx-background-color: linear-gradient(to bottom, #D2691E, #8B4513);" +
-            "-fx-padding: 8px 20px;" +
-            "-fx-background-radius: 20px;" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 2px;" +
-            "-fx-border-radius: 20px;" +
-            "-fx-cursor: hand;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 5, 0, 2, 2);"
-        );
-        
-        backToMenuButton.setOnMouseEntered(e -> {
-            backToMenuButton.setStyle(backToMenuButton.getStyle() +
-                "-fx-scale-x: 1.05;" +
-                "-fx-scale-y: 1.05;"
-            );
-        });
-        
-        backToMenuButton.setOnMouseExited(e -> {
-            backToMenuButton.setStyle(
-                "-fx-font-size: 14px;" +
-                "-fx-font-weight: bold;" +
-                "-fx-text-fill: white;" +
-                "-fx-background-color: linear-gradient(to bottom, #D2691E, #8B4513);" +
-                "-fx-padding: 8px 20px;" +
-                "-fx-background-radius: 20px;" +
-                "-fx-border-color: #FFD700;" +
-                "-fx-border-width: 2px;" +
-                "-fx-border-radius: 20px;" +
-                "-fx-cursor: hand;" +
-                "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 5, 0, 2, 2);"
-            );
-        });
-        
+        title.getStyleClass().add("header-title");
+        Region leftSpacer = new Region(); HBox.setHgrow(leftSpacer, Priority.ALWAYS);
+        Region rightSpacer = new Region(); HBox.setHgrow(rightSpacer, Priority.ALWAYS);
+        backToMenuButton.getStyleClass().addAll("game-button", "btn-home");
         backToMenuButton.setOnAction(e -> {
+            forceStopAnimation();
             Stage currentStage = (Stage) backToMenuButton.getScene().getWindow();
             currentStage.close();
-            
-            MainMenu menu = new MainMenu();
-            try {
-                menu.start(new Stage());
-            } catch (Exception ex) {
-                ex.printStackTrace();
-            }
+            try { new MainMenu().start(new Stage()); } catch (Exception ex) { ex.printStackTrace(); }
         });
-        
         headerBox.getChildren().addAll(leftSpacer, title, rightSpacer, backToMenuButton);
         return headerBox;
     }
-    
-    private VBox createPlayerPanel(int playerNumber, String color) {
+
+    private VBox createPlayerPanel(int playerNumber, String colorHex) {
         VBox panel = new VBox(15);
         panel.setPadding(new Insets(20));
         panel.setPrefWidth(200);
         panel.setAlignment(Pos.CENTER);
-        
-        String gradient = (playerNumber == 1) ? 
-            "linear-gradient(to bottom, #FF6B6B, #EE5A24)" : 
-            "linear-gradient(to bottom, #4ECDC4, #1A535C)";
-        
-        panel.setStyle(
-            "-fx-background-color: " + gradient + ";" +
-            "-fx-background-radius: 15;" +
-            "-fx-border-color: " + color + ";" +
-            "-fx-border-width: 3;" +
-            "-fx-border-radius: 15;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 5, 5);"
-        );
-        Label avatar = new Label(playerNumber == 1 ? "👤" : "👤");
+        panel.setStyle("-fx-background-color: linear-gradient(to bottom, " + colorHex + ", derive(" + colorHex + ", -30%));");
+        panel.getStyleClass().add("player-panel");
+        Label avatar = new Label("👤");
         avatar.setFont(Font.font(48));
-        
         Label name = new Label("PLAYER " + playerNumber);
         name.setFont(Font.font("Arial", FontWeight.BOLD, 20));
         name.setTextFill(Color.WHITE);
-        name.setEffect(new DropShadow(5, Color.BLACK));
-        
         Label scoreTitle = new Label("SCORE");
-        scoreTitle.setFont(Font.font("Arial", FontWeight.BOLD, 16));
-        scoreTitle.setTextFill(Color.web("#FFD700"));
-        
-        Label scoreLabel;
-        if (playerNumber == 1) {
-            player1ScoreLabel.setFont(Font.font("Arial", FontWeight.BOLD, 36));
-            player1ScoreLabel.setTextFill(Color.WHITE);
-            player1ScoreLabel.setEffect(new InnerShadow(10, Color.BLACK));
-            scoreLabel = player1ScoreLabel;
-        } else {
-            player2ScoreLabel.setFont(Font.font("Arial", FontWeight.BOLD, 36));
-            player2ScoreLabel.setTextFill(Color.WHITE);
-            player2ScoreLabel.setEffect(new InnerShadow(10, Color.BLACK));
-            scoreLabel = player2ScoreLabel;
-        }
-
+        scoreTitle.getStyleClass().add("score-title");
+        Label scoreLabel = (playerNumber == 1) ? player1ScoreLabel : player2ScoreLabel;
+        scoreLabel.getStyleClass().add("score-label");
         VBox storeBox = new VBox(5);
         storeBox.setAlignment(Pos.CENTER);
         storeBox.setPadding(new Insets(15));
-        storeBox.setStyle(
-            "-fx-background-color: rgba(255,255,255,0.1);" +
-            "-fx-background-radius: 10;" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 2;" +
-            "-fx-border-radius: 10;"
-        );
-        
+        storeBox.getStyleClass().add("store-box");
         Label storeLabel = new Label("STORE");
-        storeLabel.setFont(Font.font("Arial", FontWeight.BOLD, 14));
-        storeLabel.setTextFill(Color.web("#FFD700"));
-        
-        Label storeCount = new Label("0");
-        storeCount.setFont(Font.font("Arial", FontWeight.BOLD, 24));
-        storeCount.setTextFill(Color.WHITE);
-        
-        storeBox.getChildren().addAll(storeLabel, storeCount);
-        panel.getChildren().addAll(avatar, name, scoreTitle, scoreLabel, storeBox);
+        storeLabel.getStyleClass().add("store-label");
+        storeBox.getChildren().addAll(storeLabel, scoreLabel);
+        panel.getChildren().addAll(avatar, name, scoreTitle, storeBox);
         return panel;
     }
-    
+
     private GridPane createGameBoard() {
         GridPane boardPane = new GridPane();
-        boardPane.setHgap(15);
-        boardPane.setVgap(15);
+        boardPane.getStyleClass().add("board-pane");
+        boardPane.setHgap(10); boardPane.setVgap(10);
         boardPane.setAlignment(Pos.CENTER);
-        boardPane.setPadding(new Insets(20));
-
-        boardPane.setStyle(
-            "-fx-background-color: linear-gradient(45deg, #8B4513, #A0522D, #D2691E);" +
-            "-fx-background-radius: 20;" +
-            "-fx-border-color: #5D4037;" +
-            "-fx-border-width: 10;" +
-            "-fx-border-radius: 20;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 20, 0, 10, 10);"
-        );
+        boardPane.setPadding(new Insets(40, 50, 40, 50));
         for (int i = 0; i < 16; i++) {
             pitViews[i] = new PitView(animationLayer);
-            pitViews[i].setMinSize(80, 80);
-            pitViews[i].setMaxSize(80, 80);
-
             if (i == 7 || i == 15) {
-                pitViews[i].setMinSize(100, 100);
-                pitViews[i].setMaxSize(100, 100);
+                pitViews[i].setMinSize(100, 100); pitViews[i].setMaxSize(100, 100);
+                pitViews[i].setAsStore();
+            } else {
+                pitViews[i].setMinSize(80, 80); pitViews[i].setMaxSize(80, 80);
             }
             int pos = i;
             pitViews[i].setOnMouseClicked(e -> handlePitClick(pos));
-            pitViews[i].setOnMouseEntered(e -> {
-                if (!pitViews[pos].isDisabled()) {
-                    pitViews[pos].setEffect(new DropShadow(15, Color.GOLD));
-                    pitViews[pos].setScaleX(1.1);
-                    pitViews[pos].setScaleY(1.1);
-                }
-            });
-            pitViews[i].setOnMouseExited(e -> {
-                pitViews[pos].setEffect(null);
-                pitViews[pos].setScaleX(1.0);
-                pitViews[pos].setScaleY(1.0);
-            });
         }
-        for (int col = 1, pit = 14; pit >= 8; col++, pit--) {
-            boardPane.add(pitViews[pit], col, 0);
-        }
-        boardPane.add(pitViews[15], 0, 1);
-        GridPane.setRowSpan(pitViews[15], 3);
-
-        boardPane.add(pitViews[7], 8, 1);
-        GridPane.setRowSpan(pitViews[7], 3);
-
-        for (int col = 1, pit = 0; pit <= 6; col++, pit++) {
-            boardPane.add(pitViews[pit], col, 4);
-        }
+        for (int col = 1, pit = 14; pit >= 8; col++, pit--) boardPane.add(pitViews[pit], col, 0);
+        boardPane.add(pitViews[15], 0, 1); GridPane.setRowSpan(pitViews[15], 3);
+        boardPane.add(pitViews[7], 8, 1); GridPane.setRowSpan(pitViews[7], 3);
+        for (int col = 1, pit = 0; pit <= 6; col++, pit++) boardPane.add(pitViews[pit], col, 4);
         return boardPane;
     }
-    
+
     private HBox createTurnPanel() {
         HBox turnPanel = new HBox(10);
         turnPanel.setAlignment(Pos.CENTER);
         turnPanel.setPadding(new Insets(10, 30, 10, 30));
-        turnPanel.setStyle(
-            "-fx-background-color: linear-gradient(to right, #FFD700, #FFA500);" +
-            "-fx-background-radius: 25;" +
-            "-fx-border-color: #8B4513;" +
-            "-fx-border-width: 3;" +
-            "-fx-border-radius: 25;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 10, 0, 3, 3);"
-        );
-        
+        turnPanel.getStyleClass().add("turn-panel");
         Label turnIcon = new Label("🔄");
         turnIcon.setFont(Font.font(24));
-        
-        turnLabel.setFont(Font.font("Arial", FontWeight.BOLD, 24));
-        turnLabel.setTextFill(Color.web("#8B4513"));
-        
+        turnLabel.getStyleClass().add("turn-label");
         turnPanel.getChildren().addAll(turnIcon, turnLabel);
         return turnPanel;
     }
-    
+
     private HBox createControlButtons() {
         HBox controlBox = new HBox(20);
         controlBox.setAlignment(Pos.CENTER);
         controlBox.setPadding(new Insets(15));
-        controlBox.setStyle(
-            "-fx-background-color: rgba(0,0,0,0.2);" +
-            "-fx-border-color: #D4A76A;" +
-            "-fx-border-width: 2 0 0 0;"
-        );      
-        Button restartButton = createControlButton("🔄 RESTART", "#2E8B57");
-        Button rulesButton = createControlButton("📖 ATURAN", "#4169E1");
-        
-        restartButton.setOnAction(e -> {
-            game = new CongklakGame();
-            updateBoard();
-            animateTurnLabelChange("PLAYER 1'S TURN");
-        });       
-        rulesButton.setOnAction(e -> showRulesDialog());          
-        controlBox.getChildren().addAll(restartButton, rulesButton);
+        controlBox.setStyle("-fx-background-color: rgba(0,0,0,0.2); -fx-border-color: #D4A76A; -fx-border-width: 2 0 0 0;");
+        Button restartButton = new Button("🔄 RESTART");
+        restartButton.getStyleClass().addAll("game-button", "btn-restart");
+        Button rulesButton = new Button("📖 ATURAN");
+        rulesButton.getStyleClass().addAll("game-button", "btn-rules");
+        skipButton.getStyleClass().addAll("game-button");
+        skipButton.setStyle("-fx-background-color: #FF8C00;");
+        skipButton.setDisable(true);
+        restartButton.setOnAction(e -> handleRestart());
+        skipButton.setOnAction(e -> handleSkip());
+        rulesButton.setOnAction(e -> showRulesDialog());
+        controlBox.getChildren().addAll(restartButton, skipButton, rulesButton);
         return controlBox;
     }
-    
-    private Button createControlButton(String text, String color) {
-        Button button = new Button(text);
-        button.setFont(Font.font("Arial", FontWeight.BOLD, 14));
-        button.setTextFill(Color.WHITE);
-        button.setPrefSize(150, 40);
-        button.setStyle(
-            "-fx-background-color: " + color + ";" +
-            "-fx-background-radius: 20;" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 2;" +
-            "-fx-border-radius: 20;" +
-            "-fx-cursor: hand;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.3), 5, 0, 2, 2);"
-        );      
-        button.setOnMouseEntered(e -> {
-            button.setStyle(
-                "-fx-background-color: derive(" + color + ", 20%);" +
-                "-fx-background-radius: 20;" +
-                "-fx-border-color: #FFD700;" +
-                "-fx-border-width: 2;" +
-                "-fx-border-radius: 20;" +
-                "-fx-cursor: hand;" +
-                "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 8, 0, 3, 3);"
-            );
-            button.setScaleX(1.05);
-            button.setScaleY(1.05);
-        });
-        button.setOnMouseExited(e -> {
-            button.setStyle(
-                "-fx-background-color: " + color + ";" +
-                "-fx-background-radius: 20;" +
-                "-fx-border-color: #FFD700;" +
-                "-fx-border-width: 2;" +
-                "-fx-border-radius: 20;" +
-                "-fx-cursor: hand;" +
-                "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.3), 5, 0, 2, 2);"
-            );
-            button.setScaleX(1.0);
-            button.setScaleY(1.0);
-        });       
-        return button;
-    }
-    
-    private void animateInitialStart() {
-        ScaleTransition scale = new ScaleTransition(Duration.seconds(0.5), turnLabel);
-        scale.setFromX(0.5);
-        scale.setFromY(0.5);
-        scale.setToX(1.0);
-        scale.setToY(1.0);
-        
-        FadeTransition fade = new FadeTransition(Duration.seconds(0.5), turnLabel);
-        fade.setFromValue(0);
-        fade.setToValue(1);
-        
-        ParallelTransition parallel = new ParallelTransition(scale, fade);
-        parallel.play();
-    }
-    
-    private void handlePitClick(int index) {
-        System.out.println("Clicked pit: " + index);
-        MoveResult result = game.makeMove(index);
-        
-        if (!result.valid) {
-            shakePit(index);
-            return;
-        }
-        if (result.path == null || result.path.isEmpty()) {
-            updateBoard();
-            return;
-        }
-        animateMove(result);
-    }
-    
-    private void shakePit(int pitIndex) {
-        TranslateTransition tt = new TranslateTransition(Duration.millis(100), pitViews[pitIndex]);
-        tt.setFromX(0);
-        tt.setByX(10);
-        tt.setCycleCount(6);
-        tt.setAutoReverse(true);
-        tt.play();
-    }
-    
-    private void animateMove(MoveResult result) {
-        animateSeedStep(result, 0);
-    }
-    
-    private void afterMove(MoveResult result) {
-        updateBoard();
-        if (game.isGameOver()) {
-            game.getBoard().collectRemainingSeeds();
-            updateBoard();    
-            Platform.runLater(() -> {
-                int winner = game.getBoard().getWinner();
-                showGameOverPopup(winner);
-                disableAllPits(true);
-            });
-            return;
-        }        
-        String playerText = "PLAYER " + (game.getCurrentPlayer() + 1) + "'S TURN";
-        animateTurnLabelChange(playerText);
-        disableAllPits(false);
-        updateBoard();
-    }
-    
-    private void animateSeedStep(MoveResult result, int step) {
-        if (result.path == null || result.path.isEmpty()) {
-            updateBoard();
-            turnLabel.setText("PLAYER " + (game.getCurrentPlayer() + 1) + "'S TURN");
-            return;
-        }
-        if (step >= result.path.size()) {
-            updateBoard();
-            afterMove(result);
-            return;
-        }
-        disableAllPits(true);
 
-        int fromPit = (step == 0) ? result.startPit : result.path.get(step - 1);
-        int toPit   = result.path.get(step);
-
-        PitView source = pitViews[fromPit];
-        PitView target = pitViews[toPit];
-        source.removeOneVisualSeed();
-        source.animateSeedTo(target, () -> {
-            target.addVisualSeed();
-            animateSeedStep(result, step + 1);
-        });
-    }
-    
-    private void disableAllPits(boolean disable) {
-        for (PitView p : pitViews) {
-            if (p != null) {
-                p.setDisable(disable);
-                p.setOpacity(disable ? 0.7 : 1.0);
-            }
-        }
-    }
-    
-    private void animateTurnLabelChange(String newText) {
-        FadeTransition fadeOut = new FadeTransition(Duration.millis(200), turnLabel);
-        fadeOut.setFromValue(1.0);
-        fadeOut.setToValue(0.0);
-        
-        FadeTransition fadeIn = new FadeTransition(Duration.millis(200), turnLabel);
-        fadeIn.setFromValue(0.0);
-        fadeIn.setToValue(1.0);
-        
-        fadeOut.setOnFinished(e -> {
-            turnLabel.setText(newText);
-            if (newText.contains("PLAYER 1")) {
-                turnLabel.setTextFill(Color.web("#FF6B6B"));
-            } else {
-                turnLabel.setTextFill(Color.web("#4ECDC4"));
-            }    
-            fadeIn.play();
-
-            ScaleTransition pulse = new ScaleTransition(Duration.millis(300), turnLabel);
-            pulse.setFromX(1.0);
-            pulse.setFromY(1.0);
-            pulse.setToX(1.1);
-            pulse.setToY(1.1);
-            pulse.setCycleCount(2);
-            pulse.setAutoReverse(true);
-            pulse.play();
-        });
-        fadeOut.play();
-    }
-    
-    private void updateBoard() {
-        int[] panel = game.getBoard().getBoard();      
-        for (int i = 0; i < 16; i++) {
-            pitViews[i].setSeeds(panel[i]);
-            pitViews[i].setActive(false);
-        }
-        player1ScoreLabel.setText(String.valueOf(panel[7]));
-        player2ScoreLabel.setText(String.valueOf(panel[15]));
-        
-        int current = game.getCurrentPlayer();
-        
-        if (current == 0) {
-            for (int i = 0; i <= 6; i++) {
-                if (panel[i] > 0) pitViews[i].setActive(true);
-            }
-        } else {
-            for (int i = 8; i <= 14; i++) {
-                if (panel[i] > 0) pitViews[i].setActive(true);
-            }
-        }
-    }
-    
     private void showRulesDialog() {
         Stage rulesStage = new Stage();
-        rulesStage.initModality(Modality.APPLICATION_MODAL);
-        
-        VBox rulesBox = new VBox(20);
-        rulesBox.setAlignment(Pos.CENTER);
-        rulesBox.setPadding(new Insets(30));
-        rulesBox.setStyle(
-            "-fx-background-color: linear-gradient(to bottom, #F5DEB3, #DEB887);" +
-            "-fx-border-color: #8B4513;" +
-            "-fx-border-width: 5;" +
-            "-fx-border-radius: 20;" +
-            "-fx-background-radius: 20;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 20, 0, 0, 0);"
-        );   
-        Label title = new Label("📜 ATURAN PERMAINAN CONGKLAK");
-        title.setFont(Font.font("Arial", FontWeight.BOLD, 28));
-        title.setTextFill(Color.web("#8B4513"));
-        
-        VBox rulesContent = new VBox(15);
-        rulesContent.setAlignment(Pos.TOP_LEFT);
-        rulesContent.setPadding(new Insets(20));   
-        String[] rules = {
-            "1. Setiap pemain memiliki 7 lubang kecil dan 1 lubang besar (store)",
-            "2. Setiap lubang kecil diisi dengan 7 biji congklak",
-            "3. Pemain memilih satu lubang miliknya dan mengambil semua bijinya",
-            "4. Biji disebar satu per satu ke lubang berikutnya searah jarum jam",
-            "5. Jika biji terakhir jatuh di store milik sendiri, dapat giliran lagi",
-            "6. Jika biji terakhir jatuh di lubang kosong milik sendiri dan lubang",
-            "   seberang lawan berisi biji, biji tersebut diambil",
-            "7. Permainan berakhir ketika salah satu pemain kehabisan biji",
-            "8. Pemain dengan biji terbanyak di store-nya adalah pemenang"
-        };
-        for (String rule : rules) {
-            Label ruleLabel = new Label(rule);
-            ruleLabel.setFont(Font.font("Arial", 16));
-            ruleLabel.setTextFill(Color.web("#5D4037"));
-            ruleLabel.setWrapText(true);
-            rulesContent.getChildren().add(ruleLabel);
-        }
-        Button closeButton = new Button("TUTUP");
-        closeButton.setStyle(
-            "-fx-background-color: linear-gradient(to bottom, #8B4513, #A0522D);" +
-            "-fx-text-fill: white;" +
-            "-fx-font-weight: bold;" +
-            "-fx-font-size: 16px;" +
-            "-fx-padding: 10 30;" +
-            "-fx-background-radius: 15;" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 2;" +
-            "-fx-border-radius: 15;" +
-            "-fx-cursor: hand;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.5), 5, 0, 2, 2);"
+        rulesStage.initOwner(primaryStage);
+        rulesStage.initModality(Modality.WINDOW_MODAL);
+        rulesStage.setResizable(false);
+
+        // 1. Layout Utama (Wadah Gradient Background)
+        VBox mainLayout = new VBox(15);
+        mainLayout.setAlignment(Pos.CENTER);
+        mainLayout.setPadding(new Insets(25));
+        // Style background ditaruh di sini agar statis
+        mainLayout.setStyle(
+                "-fx-background-color: linear-gradient(to bottom, #F5DEB3, #DEB887);" +
+                        "-fx-border-color: #8B4513; -fx-border-width: 5;"
         );
-        closeButton.setOnAction(e -> rulesStage.close());
-        closeButton.setOnMouseEntered(e -> {
-            closeButton.setScaleX(1.05);
-            closeButton.setScaleY(1.05);
-        });
-        closeButton.setOnMouseExited(e -> {
-            closeButton.setScaleX(1.0);
-            closeButton.setScaleY(1.0);
-        });
-        rulesBox.getChildren().addAll(title, rulesContent, closeButton);
-        
-        Scene rulesScene = new Scene(rulesBox, 600, 500);
-        rulesStage.setScene(rulesScene);
-        rulesStage.setTitle("Aturan Permainan");
+
+        // 2. Judul
+        Label title = new Label("📜 ATURAN PERMAINAN");
+        title.setFont(Font.font("Arial", FontWeight.BOLD, 24));
+        title.setTextFill(Color.web("#8B4513"));
+        title.setEffect(new DropShadow(5, Color.web("#000000", 0.2)));
+
+        // 3. Konten Aturan (Wadah Teks)
+        VBox contentBox = new VBox(10);
+        contentBox.setPadding(new Insets(10));
+        contentBox.setStyle("-fx-background-color: transparent;");
+
+        String[] rules = {
+                "1. Pemain memilih satu lubang di sisi miliknya yang berisi biji.",
+                "2. Biji akan dibagikan satu per satu ke lubang berikutnya searah jarum jam.",
+                "3. Jika biji terakhir jatuh di LUMBUNG (Store) sendiri, pemain mendapatkan giliran tambahan (Free Turn).",
+                "4. Jika biji terakhir jatuh di LUBANG KOSONG di sisi sendiri dan seberangnya ada biji lawan, lakukan PENEMBAKAN (Capture).",
+                "5. Jika biji terakhir jatuh di LUBANG ISI (selain lumbung), ambil semua biji di lubang tersebut dan lanjutkan pembagian (Estafet / Chain Move).",
+                "6. Jika biji terakhir jatuh di lubang kosong lawan, giliran berakhir.",
+                "7. Permainan berakhir jika salah satu sisi pemain kosong melompong.",
+                "8. Pemenang adalah pemain dengan jumlah biji terbanyak di lumbungnya."
+        };
+
+        for (String r : rules) {
+            Label l = new Label(r);
+            l.setFont(Font.font("Arial", 14));
+            l.setTextFill(Color.web("#5D4037"));
+            l.setWrapText(true); // Agar teks turun ke bawah
+            l.setMaxWidth(400);  // Batas lebar teks agar rapi
+            contentBox.getChildren().add(l);
+        }
+
+        // 4. ScrollPane (Agar bisa digulir)
+        ScrollPane scrollPane = new ScrollPane(contentBox);
+        scrollPane.setFitToWidth(true);
+        scrollPane.setPrefHeight(300); // Tinggi area scroll
+        scrollPane.setStyle("-fx-background: transparent; -fx-background-color: transparent;");
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+
+        // 5. Tombol Tutup
+        Button closeBtn = new Button("TUTUP");
+        closeBtn.setStyle(
+                "-fx-background-color: #8B4513; -fx-text-fill: white;" +
+                        "-fx-font-weight: bold; -fx-padding: 10 30;" +
+                        "-fx-background-radius: 10; -fx-cursor: hand;" +
+                        "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.4), 5, 0, 2, 2);"
+        );
+
+        // Efek Hover Tombol
+        closeBtn.setOnMouseEntered(e -> closeBtn.setStyle("-fx-background-color: #A0522D; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 10 30; -fx-background-radius: 10;"));
+        closeBtn.setOnMouseExited(e -> closeBtn.setStyle("-fx-background-color: #8B4513; -fx-text-fill: white; -fx-font-weight: bold; -fx-padding: 10 30; -fx-background-radius: 10;"));
+
+        closeBtn.setOnAction(e -> rulesStage.close());
+
+        mainLayout.getChildren().addAll(title, scrollPane, closeBtn);
+
+        Scene scene = new Scene(mainLayout, 500, 500); // Ukuran window diperbesar sedikit
+        rulesStage.setScene(scene);
         rulesStage.show();
     }
-    
-    private void showGameOverPopup(int winner) {
-        Stage popupStage = new Stage();
-        popupStage.initModality(Modality.APPLICATION_MODAL);
-        popupStage.setTitle("🎉 PERMAINAN SELESAI!");
-        
-        VBox root = new VBox(30);
+
+    private void showGameOverDialog() {
+        int winner = game.getBoard().getWinner();
+        String msg = (winner == 0) ? "SERI!" : "PLAYER " + winner + " MENANG!";
+        Stage dialog = new Stage();
+        dialog.initOwner(primaryStage);
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.setResizable(false);
+        VBox root = new VBox(20);
         root.setAlignment(Pos.CENTER);
-        root.setPadding(new Insets(40));
-        root.setStyle(
-            "-fx-background-color: linear-gradient(to bottom right, #8B4513, #A0522D, #D2691E);" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 8px;" +
-            "-fx-border-radius: 25px;" +
-            "-fx-background-radius: 25px;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 40, 0, 0, 0);"
-        );
-        
-        HBox headerBox = new HBox(15);
-        headerBox.setAlignment(Pos.CENTER);
-        
-        Label crownLabel = new Label("👑");
-        crownLabel.setStyle("-fx-font-size: 48px;");
-        
-        Label titleLabel = new Label("PERMAINAN SELESAI!");
-        titleLabel.setStyle(
-            "-fx-font-size: 36px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-text-fill: #FFD700;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 15, 0, 4, 4);"
-        );
-        headerBox.getChildren().addAll(crownLabel, titleLabel);
-        
-        Label winnerLabel = new Label();
-        winnerLabel.setStyle(
-            "-fx-font-size: 42px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-padding: 25px 50px;" +
-            "-fx-background-radius: 20px;" +
-            "-fx-border-radius: 20px;" +
-            "-fx-border-width: 5px;"
-        );
-        if (winner == 1) {
-            winnerLabel.setText("🎉 PLAYER 1 MENANG! 🎉");
-            winnerLabel.setStyle(winnerLabel.getStyle() + 
-                "-fx-text-fill: #FF6B6B;" +
-                "-fx-background-color: rgba(255, 215, 0, 0.3);" +
-                "-fx-border-color: #FF6B6B;"
-            );
-        } else if (winner == 2) {
-            winnerLabel.setText("🎉 PLAYER 2 MENANG! 🎉");
-            winnerLabel.setStyle(winnerLabel.getStyle() + 
-                "-fx-text-fill: #4ECDC4;" +
-                "-fx-background-color: rgba(65, 105, 225, 0.3);" +
-                "-fx-border-color: #4ECDC4;"
-            );
-        } else {
-            winnerLabel.setText("🤝 SERI! 🤝");
-            winnerLabel.setStyle(winnerLabel.getStyle() + 
-                "-fx-text-fill: #32CD32;" +
-                "-fx-background-color: rgba(50, 205, 50, 0.3);" +
-                "-fx-border-color: #32CD32;"
-            );
-        }
-        int score1 = game.getBoard().getBoard()[7];
-        int score2 = game.getBoard().getBoard()[15];
-        
-        HBox scoreBox = new HBox(40);
-        scoreBox.setAlignment(Pos.CENTER);
-        
-        VBox player1Box = createPlayerScoreBox("PLAYER 1", score1, "#FF6B6B");
-        VBox vsBox = new VBox();
-        vsBox.setAlignment(Pos.CENTER);
-        Label vsLabel = new Label("VS");
-        vsLabel.setStyle("-fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: #FFD700;");
-        vsBox.getChildren().add(vsLabel);
-        
-        VBox player2Box = createPlayerScoreBox("PLAYER 2", score2, "#4ECDC4");
-        
-        scoreBox.getChildren().addAll(player1Box, vsBox, player2Box);
-        
-        Label messageLabel = new Label("Terima kasih telah bermain Congklak!");
-        messageLabel.setStyle(
-            "-fx-font-size: 20px;" +
-            "-fx-font-style: italic;" +
-            "-fx-text-fill: #F5DEB3;"
-        );
-        HBox buttonBox = new HBox(20);
-        buttonBox.setAlignment(Pos.CENTER);
-        
-        Button replayButton = new Button("🔄 MAIN LAGI");
-        replayButton.setStyle(
-            "-fx-font-size: 18px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-text-fill: white;" +
-            "-fx-background-color: linear-gradient(to bottom, #2E8B57, #228B22);" +
-            "-fx-padding: 15px 40px;" +
-            "-fx-background-radius: 15px;" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 3px;" +
-            "-fx-border-radius: 15px;" +
-            "-fx-cursor: hand;"
-        );  
-        Button menuButton = new Button("🏠 MENU UTAMA");
-        menuButton.setStyle(
-            "-fx-font-size: 18px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-text-fill: white;" +
-            "-fx-background-color: linear-gradient(to bottom, #D2691E, #8B4513);" +
-            "-fx-padding: 15px 40px;" +
-            "-fx-background-radius: 15px;" +
-            "-fx-border-color: #FFD700;" +
-            "-fx-border-width: 3px;" +
-            "-fx-border-radius: 15px;" +
-            "-fx-cursor: hand;"
-        );  
-        replayButton.setOnAction(e -> {
-            popupStage.close();
-            game = new CongklakGame();
-            updateBoard();
-            animateTurnLabelChange("PLAYER 1'S TURN");
-            disableAllPits(false);
-        });
-        menuButton.setOnAction(e -> {
-            popupStage.close();
-            Stage currentStage = (Stage) menuButton.getScene().getWindow();
-            currentStage.close();
-            
-            MainMenu menu = new MainMenu();
-            try {
-                menu.start(new Stage());
-            } catch (Exception ex) {
-                ex.printStackTrace();
-            }
-        });
-        buttonBox.getChildren().addAll(replayButton, menuButton);
-        
-        root.getChildren().addAll(headerBox, winnerLabel, scoreBox, messageLabel, buttonBox);
-        
-        Scene scene = new Scene(root);
-        popupStage.setScene(scene);
-        
-        root.setOpacity(0);
-        root.setScaleX(0.8);
-        root.setScaleY(0.8);
-        
-        ScaleTransition scaleIn = new ScaleTransition(Duration.seconds(0.5), root);
-        scaleIn.setFromX(0.8); scaleIn.setFromY(0.8);
-        scaleIn.setToX(1.0); scaleIn.setToY(1.0);
-        
-        FadeTransition fadeIn = new FadeTransition(Duration.seconds(0.5), root);
-        fadeIn.setFromValue(0);
-        fadeIn.setToValue(1);
-        
-        ParallelTransition parallel = new ParallelTransition(scaleIn, fadeIn);
-        
-        popupStage.show();
-        parallel.play();
+        root.setPadding(new Insets(30));
+        root.setStyle("-fx-background-color: #2E8B57; -fx-border-color: gold; -fx-border-width: 5;");
+        Label lbl = new Label(msg);
+        lbl.setStyle("-fx-font-size: 32px; -fx-text-fill: white; -fx-font-weight: bold;");
+        Button close = new Button("OK");
+        close.setOnAction(e -> dialog.close());
+        root.getChildren().addAll(lbl, close);
+        dialog.setScene(new Scene(root, 400, 200));
+        dialog.show();
     }
-    
-    private VBox createPlayerScoreBox(String playerName, int score, String color) {
-        VBox box = new VBox(10);
-        box.setAlignment(Pos.CENTER);
-        box.setPadding(new Insets(20, 30, 20, 30));
-        box.setStyle(
-            "-fx-background-color: rgba(255,255,255,0.1);" +
-            "-fx-background-radius: 15px;" +
-            "-fx-border-color: " + color + ";" +
-            "-fx-border-width: 3px;" +
-            "-fx-border-radius: 15px;"
-        );
-        Label nameLabel = new Label(playerName);
-        nameLabel.setStyle(
-            "-fx-font-size: 22px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-text-fill: " + color + ";"
-        );
-        Label scoreLabel = new Label(String.valueOf(score));
-        scoreLabel.setStyle(
-            "-fx-font-size: 48px;" +
-            "-fx-font-weight: bold;" +
-            "-fx-text-fill: white;" +
-            "-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.8), 10, 0, 2, 2);"
-        );
-        box.getChildren().addAll(nameLabel, scoreLabel);
-        return box;
-    }
-    
+
     public static void main(String[] args) {
-        Application.launch(MainMenu.class, args);
+        launch(args);
     }
 }

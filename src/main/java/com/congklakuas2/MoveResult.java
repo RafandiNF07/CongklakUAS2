@@ -7,8 +7,13 @@ public class MoveResult {
     public boolean valid = true;
     public boolean freeTurn = false;
 
-    public int startPit;    
+    public int startPit;
     public int startSeeds;
+
+    public boolean hitOpponent = false;
+    public int stopAtIndex = -1;
+    public int capturedSeeds = 0;
+
     public List<Integer> path = new ArrayList<>();
 
     public MoveResult() {}
